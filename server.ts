@@ -1,50 +1,55 @@
 import { serve } from "https://deno.land/std@0.131.0/http/server.ts";
 
-// Load API Keys from Environment Variables
-const NUMVERIFY_API_KEY = Deno.env.get("5e2a3ffcf66a18e7cd53cae072b0a63c") || ""; 
-const GOOGLE_SAFE_BROWSING_API_KEY = Deno.env.get("AIzaSyDMb0G6Oc-msfdigMLBI76PE_oAb-Mbk0M") || "";
+const NUMVERIFY_API_KEY = "5e2a3ffcf66a18e7cd53cae072b0a63c"; // Replace with your Numverify API key
+const GOOGLE_SAFE_BROWSING_API_KEY = "AIzaSyDMb0G6Oc-msfdigMLBI76PE_oAb-Mbk0M"; // Replace with Google Safe Browsing API key
 const NUMVERIFY_API_URL = "http://apilayer.net/api/validate";
+const GOOGLE_EMAIL_VERIFICATION_API = "https://emailvalidation.abstractapi.com/v1/?api_key=246131644673-f29qhp9n24emsmn9j6cmv66i399mke4l.apps.googleusercontent.com";
 
-// Blocked Users List
-const blockedUsers = new Set();
-const connectedClients = new Set();
-
-// **Validate Email Address**
-function validateEmail(email: string): Response {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  
-  if (!emailRegex.test(email)) {
-    sendPushNotification("🚨 Invalid Email Detected!");
-    blockUser("❌ Invalid Email Blocked!", email);
-    return jsonResponse("alert", "❌ Invalid Email Address!");
+// **Real-Time Email Verification**
+async function validateEmail(email: string) {
+  if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email)) {
+    return jsonResponse("alert", "❌ Invalid Email Format!");
   }
 
-  return jsonResponse("safe", `✅ Valid Email Address: ${email}`);
+  try {
+    const response = await fetch(`${GOOGLE_EMAIL_VERIFICATION_API}&email=${email}`);
+    const data = await response.json();
+
+    if (!data.is_valid) {
+      sendPushNotification("🚨 Fake Email Detected!");
+      return jsonResponse("alert", "❌ Invalid Email!");
+    }
+
+    return jsonResponse("safe", `✅ Valid Email: ${email}`);
+  } catch (error) {
+    return jsonResponse("error", "❌ Error validating email. Try again later.");
+  }
 }
 
-// **Validate Phone Number**
-async function validatePhone(phone: string): Promise<Response> {
+// **Real-Time Phone Number Validation (Numverify API)**
+async function validatePhone(phone: string) {
+  if (!/^\d{10}$/.test(phone)) {
+    return jsonResponse("alert", "❌ Phone number must be exactly 10 digits!");
+  }
+
   try {
     const response = await fetch(`${NUMVERIFY_API_URL}?access_key=${NUMVERIFY_API_KEY}&number=${phone}&format=1`);
     const data = await response.json();
 
     if (!data.valid) {
       sendPushNotification("🚨 Fake Phone Number Detected!");
-      blockUser("❌ Fake Phone Blocked!", phone);
-      return jsonResponse("alert", "❌ Invalid or Fake Phone Number!");
+      return jsonResponse("alert", "❌ Fake Phone Number!");
     }
 
-    return jsonResponse("safe", `✅ Valid Phone: ${phone} (${data.country_name}, ${data.carrier})`);
+    return jsonResponse("safe", `✅ Valid Phone Number: ${phone} (${data.country_name}, ${data.carrier})`);
   } catch (error) {
     return jsonResponse("error", "❌ Error validating phone number. Try again later.");
   }
 }
 
-// **Validate Website Safety**
-async function validateWebsite(url: string): Promise<Response> {
+// **Fake Link Detection (Google Safe Browsing API)**
+async function validateWebsite(url: string) {
   if (!url.startsWith("https://")) {
-    sendPushNotification("🚨 Unsafe Website Detected!");
-    blockUser("❌ Unsafe Website Blocked!", url);
     return jsonResponse("alert", "❌ Unsafe Website! Only HTTPS is allowed.");
   }
 
@@ -68,10 +73,9 @@ async function validateWebsite(url: string): Promise<Response> {
 
     const data = await response.json();
 
-    if (data.matches && Object.keys(data.matches).length > 0) {
-      sendPushNotification("🚨 Fake Website Detected!");
-      blockUser("❌ Fake Website Blocked!", url);
-      return jsonResponse("alert", "❌ Fake Website Blocked!");
+    if (data.matches) {
+      sendPushNotification("🚨 Fake Link Detected!");
+      return jsonResponse("alert", "❌ Fake Link Blocked!");
     }
 
     return jsonResponse("safe", `✅ Safe Website: ${url}`);
@@ -80,27 +84,16 @@ async function validateWebsite(url: string): Promise<Response> {
   }
 }
 
-// **Block Users**
-function blockUser(reason: string, clientId: string) {
-  blockedUsers.add(clientId);
-  sendPushNotification(reason);
-  setTimeout(() => {
-    for (const client of connectedClients) {
-      if (blockedUsers.has(client.id)) {
-        client.send("❌ You have been blocked!");
-      }
-    }
-  }, 2000);
-}
+// **WebSocket Server for Real-Time Alerts**
+const connectedClients = new Set<WebSocket>();
 
-// **Send Push Notifications**
 function sendPushNotification(message: string) {
   for (const client of connectedClients) {
     client.send(message);
   }
 }
 
-// **Helper Function for JSON Response**
+// **Helper function to send JSON responses**
 function jsonResponse(status: string, message: string): Response {
   return new Response(JSON.stringify({ status, message }), { headers: { "Content-Type": "application/json" } });
 }
@@ -116,13 +109,13 @@ serve(async (req) => {
   }
 
   if (pathname === "/check") {
+    const email = searchParams.get("email");
     const url = searchParams.get("url");
     const phone = searchParams.get("phone");
-    const email = searchParams.get("email");
 
-    if (email) return validateEmail(email);
-    if (phone) return await validatePhone(phone);
+    if (email) return await validateEmail(email);
     if (url) return await validateWebsite(url);
+    if (phone) return await validatePhone(phone);
   }
 
   if (pathname === "/ws") {
