@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Validation Form</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+        input, button { margin: 10px; padding: 10px; font-size: 16px; }
+        #result { margin-top: 20px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h2>Validate Email, Phone, or URL</h2>
+
+    <input type="text" id="email" placeholder="Enter Email">
+    <input type="text" id="phone" placeholder="Enter Phone (10 digits)">
+    <input type="text" id="url" placeholder="Enter Website URL">
+    <button onclick="validateInput()">Validate</button>
+
+    <p id="result"></p>
+
+    <script>
+        const API_URL = "https://your-project-name.deno.dev"; // Change to your actual Deno Deploy URL
+
+        async function validateInput() {
+            const email = document.getElementById("email").value.trim();
+            const phone = document.getElementById("phone").value.trim();
+            const website = document.getElementById("url").value.trim();
+
+            if (!email && !phone && !website) {
+                showResult("❌ Please enter email, phone, or URL!", "error");
+                return;
+            }
+
+            let queryParams = new URLSearchParams();
+            if (email) queryParams.append("email", email);
+            if (phone) queryParams.append("phone", phone);
+            if (website) queryParams.append("url", website);
+
+            try {
+                const response = await fetch(`${API_URL}/?${queryParams.toString()}`);
+                const data = await response.json();
+                showResult(data.message, data.status);
+            } catch (error) {
+                showResult("❌ Server error. Please try again later.", "error");
+            }
+        }
+
+        function showResult(message, status) {
+            const result = document.getElementById("result");
+            result.textContent = message;
+            result.style.color = status === "safe" ? "green" : "red";
+        }
+    </script>
+
+</body>
+</html>
